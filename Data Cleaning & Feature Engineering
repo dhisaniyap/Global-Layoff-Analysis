@@ -1,0 +1,289 @@
+Global Layoff Analysis - Data Cleaning & Feature Engineering
+
+# IMPORT LIBRARIES
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from difflib import get_close_matches
+
+pd.set_option("display.max_rows", None)
+
+# LOAD DATASET
+
+data = pd.read_csv("/content/drive/MyDrive/Datasets/layoffs.csv")
+df = pd.DataFrame(data)
+print(df.head())
+
+# BASIC DATA EXPLORATION
+
+print(df.shape)
+print(df.info())
+print(df.duplicated().sum())
+
+# DATE CONVERSION
+
+df["date"] = pd.to_datetime(df["date"])
+df["date_added"] = pd.to_datetime(df["date_added"])
+
+# DROP UNUSED COLUMN
+
+df.drop("source", axis=1, inplace=True)
+
+# CLEAN CATEGORICAL COLUMNS
+
+cat_cols = df.select_dtypes(include="object")
+
+for col in cat_cols:
+    print(f"Before Cleaning {col}: {df[col].nunique()}")
+
+for col in cat_cols:
+    df[col] = (
+        df[col]
+        .str.lower()
+        .str.replace("copy", "")
+        .str.strip()
+    )
+
+    print(f"After Cleaning {col}: {df[col].nunique()}")
+
+# CHECK SIMILAR COMPANY NAMES
+
+companies = df["company"].unique()
+
+for company in companies:
+    matches = get_close_matches(company, companies, n=10, cutoff=0.90)
+
+    if len(matches) > 1:
+        print(matches)
+
+# FIX COMPANY NAME INCONSISTENCIES
+
+replace_companies = {
+    "automatic": "automattic",
+    "curefit": "cure.fit",
+    "skipthedishes": "skip the dishes",
+    "mr. yum": "mr yum",
+    "connectedh": "connected",
+    "on deck": "ondeck",
+    "simpl": "simple",
+    "breathe": "breather",
+    "thegist": "the gist",
+    "deep instict": "deep instinct",
+    "mri software": "marin software"
+}
+
+df["company"] = df["company"].replace(replace_companies)
+
+# HANDLE MISSING VALUES
+
+for col in cat_cols:
+    df[col] = df[col].fillna(df[col].mode()[0])
+
+# TOTAL LAID OFF ANALYSIS
+
+print(df["total_laid_off"].describe())
+
+sns.boxplot(df["total_laid_off"])
+plt.show()
+
+sns.histplot(df["total_laid_off"], kde=True)
+plt.show()
+
+# Fill missing values using industry median
+
+df["total_laid_off"] = (
+    df.groupby("industry")["total_laid_off"]
+    .transform(lambda x: x.fillna(x.median()))
+)
+
+# PERCENTAGE LAID OFF ANALYSIS
+
+sns.boxplot(df["percentage_laid_off"])
+plt.show()
+
+sns.histplot(df["percentage_laid_off"], kde=True)
+plt.show()
+
+print(
+    df["total_laid_off"].corr(df["percentage_laid_off"])
+)
+
+# Fill missing percentage values
+
+df["percentage_laid_off"] = (
+    df.groupby("industry")["percentage_laid_off"]
+    .transform(lambda x: x.fillna(x.median()))
+)
+
+df["percentage_laid_off"] = (
+    df["percentage_laid_off"].round(2)
+)
+
+# FUNDS RAISED ANALYSIS
+
+sns.boxplot(df["funds_raised"])
+plt.show()
+
+sns.histplot(df["funds_raised"], kde=True)
+plt.show()
+
+print(
+    df["funds_raised"].corr(df["total_laid_off"])
+)
+
+print(
+    df["funds_raised"].corr(df["percentage_laid_off"])
+)
+
+print(
+    df.groupby("stage")["funds_raised"].median()
+)
+
+print(
+    df.groupby("industry")["funds_raised"].median()
+)
+
+# Fill missing funds using stage median
+
+df["funds_raised"] = (
+    df.groupby("stage")["funds_raised"]
+    .transform(lambda x: x.fillna(x.median()))
+)
+
+# DATE FEATURES
+
+df["months"] = df["date"].dt.month
+df["year"] = df["date"].dt.year
+
+# COMPANY STAGE GROUPING
+
+startup = ["seed", "series a", "series b"]
+growth = [
+    "series c",
+    "series d",
+    "series e",
+    "series f",
+    "series g"
+]
+mature = [
+    "series h",
+    "series i",
+    "series j",
+    "post-ipo",
+    "acquired",
+    "private equity",
+    "subsidiary"
+]
+
+def stage_group(x):
+    if x in startup:
+        return "startup"
+    elif x in growth:
+        return "growth"
+    elif x in mature:
+        return "mature"
+    else:
+        return "unknown"
+
+df["company_stage"] = df["stage"].apply(stage_group)
+
+# FUNDING LEVEL GROUPING
+
+def funding_group(x):
+    if x <= 63:
+        return "low funding"
+    elif x <= 186:
+        return "medium funding"
+    elif x <= 440:
+        return "high funding"
+    else:
+        return "very high funding"
+
+df["funding_level"] = (
+    df["funds_raised"].apply(funding_group)
+)
+
+# LAYOFF SEVERITY GROUPING
+
+def layoff_group(x):
+    if x < 0.12:
+        return "low"
+    elif x < 0.17:
+        return "moderate"
+    elif x < 0.22:
+        return "severe"
+    else:
+        return "full shutdown"
+
+df["layoff_severity"] = (
+    df["percentage_laid_off"].apply(layoff_group)
+)
+
+# FULL SHUTDOWN FLAG
+
+df["full_shutdown"] = (
+    (df["percentage_laid_off"] == 1).astype(int)
+)
+
+# COVID PERIOD FEATURE
+
+def covid_period(x):
+    if x < 2020:
+        return "before covid"
+    elif x in [2020, 2021]:
+        return "covid period"
+    else:
+        return "after covid"
+
+df["covid_period"] = (
+    df["year"].apply(covid_period)
+)
+
+# CONVERT TO PERCENTAGE
+
+df["layoff_percentage"] = (
+    df["percentage_laid_off"] * 100
+)
+
+# INDUSTRY CORRECTION
+
+replace_industry = {
+    'microsoft':'product',
+    'oracle':'product',
+    'atlassian':'product',
+    'asana':'product',
+    'miro':'product',
+    'clickup':'product',
+    'dropbox':'product',
+    'zoom':'product',
+    'workato':'product',
+    'zapier':'product',
+    'calendly':'product',
+    'unity':'product',
+    'smartsheet':'product',
+
+    'alphasense':'ai',
+    'zapata computing':'ai',
+
+    'similarweb':'data',
+    'qualtrics':'data',
+
+    'the gist':'media',
+    'wonder':'media',
+
+    'cloud software group':'infrastructure',
+    'netlify':'infrastructure',
+
+    'agility robotics':'transportation',
+    'american robotics':'transportation'
+}
+
+for company, industry in replace_industry.items():
+    df.loc[df["company"] == company,"industry"] = industry
+
+# EXPORT CLEANED DATASET
+
+df.to_csv("layoff_cleaned_ds.csv", index=False)
+from google.colab import files
+files.download("layoff_cleaned_ds.csv")
